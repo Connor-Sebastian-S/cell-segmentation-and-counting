@@ -1,6 +1,7 @@
 import tensorflow as tf
 import os
 import random
+from datetime import datetime
 import numpy as np
 from tqdm import tqdm 
 from skimage.io import imread, imshow
@@ -8,72 +9,84 @@ from skimage.transform import resize
 import matplotlib.pyplot as plt
 from timeit import default_timer as timer
 import skimage.measure
-from model_definition import *
-import glob
 from keras.preprocessing import image
+
+from model_definition import unet
 
 # load latest jpg file in root directory, load traine UNET model, segment image, and count the cells
 def predict_image ():
     
-    # load latest file of type .jpg
-    def latest_file():
-        list_of_files = glob.glob('*.jpg')
-        latest_file = max(list_of_files, key=os.path.getctime)
-        print(latest_file)
-        return latest_file
-        
-    # specify model architecture
     IMG_WIDTH = 128
     IMG_HEIGHT = 128
     IMG_CHANNELS = 3
 
+    input_path = 'images/'
+
+    # load all folder in the image folder
+    # the folders are named by date dd-mm-yy
+    # if the folder name is not equal to todays ate, remove from list
+    input_ids = next (os.walk(input_path))[1]
+    for l in input_ids:
+        if l != datetime.today().strftime('%Y-%m-%d'):
+            input_ids.remove(l)
+
+    # format model input based on folder list - should only be 1
+    X_input = np.zeros((1, IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
+
+    sizes_test = []
+
+    # resize input image, assuming image is called 'image.jpg'
+    for n, id_ in tqdm(enumerate(input_ids), total=len(input_ids)): 
+        path = input_path + id_
+        print(path)
+        img = imread(path + '/image.jpg')[:,:,:IMG_CHANNELS]
+        sizes_test.append([img.shape[0], img.shape[1]])
+        img = resize(img, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
+        X_input[n] = img
+
+    end = timer()
+
+    # define model parameters
     kernel_size = 8
 
-    model = unet(IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS, kernel_size);
-    
+    model = unet(IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS, kernel_size)
+
     #Load saved UNET model
     unet_model_name = 'checkpoint_unet.h5'
     checkpoint_filepath = unet_model_name
     model.load_weights(checkpoint_filepath);
-    #print('\nModel loaded as {}\n'.format(checkpoint_filepath))
-    
-    image_path = latest_file()
-    
-    x = np.zeros((1, IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
-    print(len(x))
-    sizes_test = []
 
-    img = imread(image_path)
-    #sizes_test.append([img.shape[0], img.shape[1]])
-    #img = resize(img, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
-    #x = ((img))
-    imshow(img)
-    
-    #print(x)
-    #y = model.predict(x, verbose=1)
-   # z = (y > 0.5).astype(np.uint8)
-    
-   # a = 1
-   # fig, a = plt.subplots(nrows=1, ncols=3, figsize=(10,10))
+    # prediction 
+    preds_input = model.predict(X_input, verbose=1)
+    preds_input_t = (preds_input > 0.5).astype(np.uint8)
 
-   # ax[0].set_title("Input")
-  #  ax[0].imshow(x[a])
+    ix = 0
+    fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(10,10))
 
-   # ax[1].set_title("Predicted w/o Threshold")
-   # ax[1].imshow(np.squeeze(y[a]), cmap='gray')
+    # show input image
+    ax[0].set_title("Input")
+    ax[0].imshow(X_input[0])
 
-   # ax[2].set_title("Predicted with Threshold")
-   # ax[2].imshow(np.squeeze(z[a]), cmap='gray')
+    # show non-thresholded image
+    ax[1].set_title("Predicted without Threshold")
+    ax[1].imshow(np.squeeze(preds_input[0]), cmap='gray')
 
-   # for a in number:
-   #   a.axis("off")
+    # show thresholded image
+    ax[2].set_title("Predicted with Threshold")
+    ax[2].imshow(np.squeeze(preds_input_t[0]), cmap='gray')
 
-   # plt.tight_layout()
-   # plt.show()
+    for a in ax:
+      a.axis("off")
 
-   # limg = skimage.measure.label(z[a], connectivity=2, return_num=True)
+    plt.tight_layout()
+    plt.show()
 
-   # print("mask w/ threshold cell count: ", np.max(limg[0]))
+    # predict cell count and display
+    limg = skimage.measure.label(preds_input_t[ix], connectivity=2, return_num=True)
+    print("Cell count: ", np.max(limg[0]))
+
+#TODO
+# generate report of prediction data and results
     
     
 # test the segmentation and counting on a random training image
